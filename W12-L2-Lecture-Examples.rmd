@@ -1,0 +1,437 @@
+---
+title: "W12-L2-Lecture-Examples"
+author: "Dr. Coleman"
+output: html_document
+---
+
+## Example: Linear Model
+
+```{r message=FALSE}
+
+library(tidyverse)
+library(broom)
+
+fit <- lm(Ozone ~ Wind + Temp + Solar.R,
+          data = airquality)
+
+tidy(fit)
+```
+
+Check relationships
+
+```{r}
+
+airquality |> 
+  ggplot(aes(x = Wind, y = Ozone)) +
+  geom_point()
+```
+
+Natural spline
+
+```{r}
+
+library(splines)
+fit <- lm(Ozone ~ ns(Wind, 2) + Temp + Solar.R,
+          data = airquality)
+
+tidy(fit)
+```
+
+Data preprocessing
+
+```{r}
+
+aq2 <- airquality |> 
+    mutate(Temp = scale(Temp),
+           Wind = scale(Wind),
+           Solar.R = scale(Solar.R))
+
+fit <- lm(Ozone ~ ns(Wind, 2) + Temp + Solar.R, 
+          data = aq2)
+
+tidy(fit)
+```
+
+## Tidymodels: Linear Regression
+
+```{r message=FALSE}
+
+library(tidymodels)
+rec <- airquality |> 
+    recipe(Ozone ~ Wind + Temp + Solar.R) 
+
+model <- linear_reg() |> 
+    set_engine("lm") |> 
+    set_mode("regression")
+
+wf <- workflow() |> 
+    add_recipe(rec) |> 
+    add_model(model)
+
+model_fit <- fit(wf, data = airquality)
+
+model_fit
+
+tidy(model_fit)
+```
+
+Natural spline
+
+```{r}
+
+rec <- airquality |> 
+    recipe(Ozone ~ Wind + Temp + Solar.R) |> 
+    step_ns(Wind, deg_free = 2)
+
+model <- linear_reg() |> 
+    set_engine("lm") |> 
+    set_mode("regression")
+
+wf <- workflow() |> 
+    add_recipe(rec) |> 
+    add_model(model)
+
+model_fit <- fit(wf, data = airquality)
+
+model_fit
+
+tidy(model_fit)
+```
+
+Normalize
+
+```{r}
+
+rec <- airquality |> 
+    recipe(Ozone ~ Wind + Temp + Solar.R) |> 
+    step_normalize(Wind, Temp, Solar.R) |> 
+    step_ns(Wind, deg_free = 2)
+
+model <- linear_reg() |> 
+    set_engine("lm") |> 
+    set_mode("regression")
+
+wf <- workflow() |> 
+    add_recipe(rec) |> 
+    add_model(model)
+
+model_fit <- fit(wf, data = airquality)
+
+model_fit
+
+tidy(model_fit)
+```
+
+## Check model fit
+
+```{r}
+
+rec |> 
+    prep(airquality)
+
+dat_model <- rec |> 
+    prep(airquality) |> 
+    bake(new_data = NULL)
+
+dat_model
+
+airquality |> 
+  tibble() 
+
+model_fit |> 
+    extract_fit_parsnip() |> 
+    augment(new_data = dat_model)
+
+model_fit |> 
+    extract_fit_parsnip() |> 
+    augment(new_data = dat_model) |> 
+    ggplot(aes(.pred, Ozone)) + 
+    geom_point() +
+    geom_abline(intercept = 0, slope = 1)
+```
+
+## Tidymodels: Logistic Regression
+
+```{r}
+
+rec <- airquality |> 
+    recipe(Ozone ~ Wind + Temp + Solar.R) |> 
+    step_naomit(Ozone) |> 
+    step_cut(Ozone, breaks = 70) |> 
+    step_normalize(Wind, Temp, Solar.R) |> 
+    step_ns(Wind, deg_free = 2)
+
+model <- logistic_reg() |> 
+    set_engine("glm") |> 
+    set_mode("classification")
+
+wf <- workflow() |> 
+    add_recipe(rec) |> 
+    add_model(model)
+
+model_fit <- fit(wf, data = airquality)
+
+tidy(model_fit)
+```
+
+Checking model fit
+
+```{r}
+
+dat_model <- rec |> 
+    prep(airquality) |> 
+    bake(new_data = NULL)
+
+model_fit |> 
+    extract_fit_parsnip() |> 
+    augment(new_data = dat_model)
+
+model_fit |> 
+    extract_fit_parsnip() |> 
+    augment(new_data = dat_model) |> 
+    ggplot(aes(`.pred_(70,168]`, Ozone)) + 
+    geom_point(alpha = 1/2) +
+    labs(x = "Predicted Probability Ozone > 70 ppb",
+         y = "Ozone Classification")
+```
+
+## Estimating Model Performance on Training Data
+
+### Linear Regression
+
+```{r}
+
+rec <- airquality |> 
+    recipe(Ozone ~ Wind + Temp + Solar.R)
+
+model <- linear_reg() |> 
+    set_engine("lm") |> 
+    set_mode("regression")
+
+wf <- workflow() |> 
+    add_recipe(rec) |> 
+    add_model(model)
+
+folds <- vfold_cv(airquality, v = 5)
+
+folds
+
+model_fit <- fit_resamples(wf, resamples = folds)
+
+model_fit
+
+model_fit |> 
+    collect_metrics()
+```
+
+### Logistic Regression
+
+```{r}
+
+rec <- airquality |> 
+    recipe(Ozone ~ Wind + Temp + Solar.R) |> 
+    step_naomit(Ozone) |> 
+    step_cut(Ozone, breaks = 70)
+
+model <- logistic_reg() |> 
+    set_engine("glm") |> 
+    set_mode("classification")
+
+wf <- workflow() |> 
+    add_recipe(rec) |> 
+    add_model(model)
+
+folds <- vfold_cv(airquality, v = 5)
+
+folds
+
+model_fit <- fit_resamples(wf, resamples = folds)
+
+model_fit |> 
+    collect_metrics()
+```
+
+Fit on complete dataset
+
+```{r}
+
+model_fit <- fit(wf, data = airquality)
+
+dat_model <- rec |> 
+    prep(airquality) |> 
+    bake(new_data = NULL)
+
+a <- model_fit |> 
+    extract_fit_parsnip() |> 
+    augment(new_data = dat_model)
+
+table(predicted = a$.pred_class, 
+      truth = a$Ozone)
+```
+
+## Changing models
+
+Original approach
+
+```{r}
+
+rec <- airquality |> 
+    recipe(Ozone ~ Wind + Temp + Solar.R) |> 
+    step_naomit(everything()) |> 
+    step_cut(Ozone, breaks = 70)
+
+model <- logistic_reg() |> 
+    set_engine("glm") |> 
+    set_mode("classification")
+
+wf <- workflow() |> 
+    add_recipe(rec) |> 
+    add_model(model)
+
+folds <- vfold_cv(airquality, v = 5)
+folds
+
+model_fit <- fit_resamples(wf, resamples = folds)
+
+model_fit |> 
+    collect_metrics()
+```
+
+Decision tree approach
+
+```{r}
+
+model <- decision_tree() |> 
+    set_engine("rpart") |> 
+    set_mode("classification")
+
+wf <- workflow() |> 
+    add_recipe(rec) |> 
+    add_model(model)
+
+folds <- vfold_cv(airquality, v = 5)
+folds
+
+model_fit <- fit_resamples(wf, resamples = folds)
+
+model_fit |> 
+    collect_metrics()
+```
+
+## Tuning parameters
+
+```{r}
+
+rec <- airquality |> 
+    recipe(Ozone ~ Wind + Temp + Solar.R) |> 
+    step_ns(Wind, deg_free = 2)
+
+model <- linear_reg() |> 
+    set_engine("lm") |> 
+    set_mode("regression")
+
+wf <- workflow() |> 
+    add_recipe(rec) |> 
+    add_model(model)
+
+model_fit <- fit(wf, data = airquality)
+
+tidy(model_fit)
+```
+
+Adding in cross-validation
+
+```{r}
+
+rec <- airquality |> 
+    recipe(Ozone ~ Wind + Temp + Solar.R) |> 
+    step_ns(Wind, deg_free = tune("df"))
+
+model <- linear_reg() |> 
+    set_engine("lm") |> 
+    set_mode("regression")
+
+wf <- workflow() |> 
+    add_recipe(rec) |> 
+    add_model(model)
+
+folds <- vfold_cv(airquality, v = 5)
+
+res <- tune_grid(wf, resamples = folds, 
+                 grid = tibble(df = c(2, 4, 6, 8)))
+
+res
+```
+
+Collect metrics
+
+```{r}
+
+res |> 
+  collect_metrics()
+```
+
+Find lowest rmse
+
+```{r}
+
+res |> 
+    collect_metrics() |> 
+    filter(.metric == "rmse") |> 
+    arrange(mean)
+```
+
+Find highest R squared
+
+```{r}
+
+res |> 
+    collect_metrics() |> 
+    filter(.metric == "rsq") |> 
+    arrange(desc(mean))
+
+```
+
+## Multiple Tuning Parameters
+
+```{r}
+
+rec <- airquality |> 
+    recipe(Ozone ~ Wind + Temp + Solar.R) |> 
+    step_normalize(Wind, Temp, Solar.R) |> 
+    step_ns(Wind, deg_free = tune("df_wind")) |> 
+    step_ns(Temp, deg_free = tune("df_temp"))
+
+wf <- workflow() |> 
+    add_recipe(rec) |> 
+    add_model(model)
+
+res <- tune_grid(wf, resamples = folds, 
+                 grid = expand.grid(df_wind = c(2, 4, 6, 8),
+                                    df_temp = c(2, 4, 6, 8)),
+                 control = control_grid(save_pred = TRUE))
+
+expand.grid(df_wind = c(2, 4, 6, 8),
+            df_temp = c(2, 4, 6, 8))
+
+res |> 
+    collect_metrics() |> 
+    filter(.metric == "rmse") |> 
+    arrange(mean)
+```
+
+Show best values
+
+```{r}
+
+res |> 
+    show_best(metric = "rmse")
+```
+
+Select absolute best
+
+```{r}
+
+res |> 
+    select_best(metric = "rmse")
+```
